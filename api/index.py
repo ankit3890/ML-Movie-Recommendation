@@ -1,10 +1,11 @@
 from flask import Flask, request, jsonify
 import pickle
-import pandas as pd
-from sklearn.metrics.pairwise import linear_kernel
 import os
 import requests
 import random
+# from dotenv import load_dotenv
+
+# load_dotenv()
 
 app = Flask(__name__, static_folder='../public', static_url_path='')
 
@@ -19,19 +20,21 @@ print("Loading models...")
 try:
     with open(os.path.join(BASE_DIR, 'tfidf_matrix.pkl'), 'rb') as f:
         tfidf_matrix = pickle.load(f)
-    with open(os.path.join(BASE_DIR, 'indices.pkl'), 'rb') as f:
-        indices = pickle.load(f)
-    df = pd.read_pickle(os.path.join(BASE_DIR, 'df.pkl'))
+    with open(os.path.join(BASE_DIR, 'indices_dict.pkl'), 'rb') as f:
+        indices = pickle.load(f) # Now a dict
+    with open(os.path.join(BASE_DIR, 'movies_list.pkl'), 'rb') as f:
+        movies_list = pickle.load(f) # Now a list
     print("Models loaded successfully.")
+    
     # Pre-compute titles list for faster suggestion lookups
-    all_titles = indices.index.tolist() if indices is not None else []
+    all_titles = list(indices.keys()) if indices is not None else []
     # Ensure all are strings just in case
     all_titles = [str(t) for t in all_titles]
 except Exception as e:
     print(f"Error loading models: {e}")
     tfidf_matrix = None
-    indices = None
-    df = None
+    indices = {}
+    movies_list = []
     all_titles = []
 
 TMDB_API_KEY = "fcae52d0267055bc9cca73e252188a4b"
@@ -135,45 +138,49 @@ def get_random_movies():
 
 @app.route('/api/recommend', methods=['GET'])
 def recommend():
-    if df is None:
+    if movies_list is None:
         return jsonify({"error": "Model failed to load"}), 500
 
     title = request.args.get('title')
     if not title:
         return jsonify({"error": "Title is required"}), 400
 
+    # Case-insensitive lookup helper
     if title not in indices:
-         # Case-insensitive check
         title_lower = title.lower()
         matches = [t for t in all_titles if title_lower == str(t).lower()]
         if matches:
             idx = indices[matches[0]]
-            title = matches[0] # Use the correct casing
+            title = matches[0] # Use correct casing found
         else:
             return jsonify({"error": "Movie not found", "recommendations": []}), 404
     else:
         idx = indices[title]
 
     try:
-        if isinstance(idx, pd.Series):
-            idx = idx.iloc[0]
-
-        # Calculate similarity
-        cosine_sim = linear_kernel(tfidf_matrix[idx], tfidf_matrix).flatten()
+        # idx from dict is an integer
+        
+        # Calculate similarity using Scipy sparse dot product
+        # tfidf_matrix is CSR, so dot usage:
+        # matrix[idx] is 1xN sparse row
+        # matrix.T is NxM sparse
+        # Result is 1xM cosine similarity (since vectors are unit length from TfidfVectorizer)
+        cosine_sim = tfidf_matrix[idx].dot(tfidf_matrix.T).toarray().flatten()
         
         # Get top 10
+        # argsort sorts ascending, so we take from the end
         similar_idx = cosine_sim.argsort()[::-1][1:11]
         
         # Fetch posters and scores for recommendations
         response_data = []
         for i in similar_idx:
-            movie_title = df['title'].iloc[i]
+            movie_title = movies_list[i] # Access simplified list
             score = cosine_sim[i]
             match_percentage = int(round(score * 100))
             
             tmdb_data = get_tmdb_data(movie_title)
             
-            if tmdb_data["id"]: # Start including ID
+            if tmdb_data["id"]:
                  response_data.append({
                     "title": tmdb_data["title"],
                     "poster": tmdb_data["poster"],
