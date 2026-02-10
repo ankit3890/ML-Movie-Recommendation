@@ -1,0 +1,11 @@
+button {
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    border: none;
+    color: white;
+    border-radius: 12px;
+    padding: 0.8rem 1.5rem;
+    cursor: pointer;
+    z-index: 10;
+    /* Ensure clickable */
+    position: relative;
+}
