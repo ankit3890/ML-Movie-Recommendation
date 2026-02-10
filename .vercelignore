@@ -1,0 +1,10 @@
+venv/
+.venv/
+__pycache__/
+*.pyc
+.env
+.git/
+public/
+optimize_data.py
+verify_model.py
+tfidf.pkl
