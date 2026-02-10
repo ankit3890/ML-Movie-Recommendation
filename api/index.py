@@ -7,11 +7,12 @@ import random
 
 # load_dotenv()
 
-app = Flask(__name__, static_folder='../public', static_url_path='')
 
-@app.route('/')
-def serve_frontend():
-    return app.send_static_file('index.html')
+app = Flask(__name__)
+
+# Note: Static files (index.html, CSS, JS) are served directly by Vercel from root
+# This Flask app only handles /api/* routes
+
 
 # Load models
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
