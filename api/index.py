@@ -8,11 +8,13 @@ import random
 # load_dotenv()
 
 
-app = Flask(__name__, static_folder='.', static_url_path='')
+
+app = Flask(__name__, static_folder='..', static_url_path='')
 
 @app.route('/')
 def serve_frontend():
     return app.send_static_file('index.html')
+
 
 
 # Load models
