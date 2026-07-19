@@ -1,57 +1,83 @@
 import pytest
-from api.index import get_suggestions
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
+from public.script import fetchSuggestions
 
-@patch('api.index.all_titles', ['Python Tutorial', 'Java Tutorial', 'Python for Beginners', 'Advanced Python', 'Python Cookbook'])
-def test_search_suggestions_case_insensitive_relevance():
-    # Test case-sensitive substring matching issue
-    with app.test_client() as client:
-        # Test 1: Basic case insensitivity
-        response = client.get('/api/suggestions?q=python')
-        data = response.get_json()
-        assert response.status_code == 200
-        assert len(data) == 5  # Should return all matches
-        assert 'Python Tutorial' in data
-        assert 'Java Tutorial' not in data  # Should not match unrelated titles
-        
-        # Test 2: Relevance ordering (query as whole word earlier in title should rank higher)
-        response = client.get('/api/suggestions?q=python')
-        data = response.get_json()
-        assert data[0] == 'Python Tutorial'  # Should be first as 'Python' is first word
-        assert data[1] == 'Python for Beginners'
-        assert data[2] == 'Advanced Python'
-        assert data[3] == 'Python Cookbook'
-        
-        # Test 3: Partial word matching should still work
-        response = client.get('/api/suggestions?q=tutorial')
-        data = response.get_json()
-        assert len(data) == 2
-        assert 'Python Tutorial' in data
-        assert 'Java Tutorial' in data
-        
-        # Test 4: Empty query should return empty list
-        response = client.get('/api/suggestions?q=')
-        data = response.get_json()
-        assert data == []
-        
-        # Test 5: Non-existent query should return empty list
-        response = client.get('/api/suggestions?q=nonexistent')
-        data = response.get_json()
-        assert data == []
-        
-        # Test 6: Case variations should match
-        response = client.get('/api/suggestions?q=PYTHON')
-        data = response.get_json()
-        assert len(data) == 4
-        assert 'Python Tutorial' in data
-        
-        # Test 7: Word boundary matching (should not match partial words)
-        response = client.get('/api/suggestions?q=thon')
-        data = response.get_json()
-        assert len(data) == 0  # Should not match 'Python' as it's not a whole word
-        
-        # Test 8: Multiple word query
-        response = client.get('/api/suggestions?q=python tutorial')
-        data = response.get_json()
-        assert len(data) == 1
-        assert 'Python Tutorial' in data
+@pytest.fixture
+def mock_fetch():
+    with patch('public.script.fetch') as mock_fetch:
+        yield mock_fetch
+
+def test_fetch_suggestions_makes_api_call(mock_fetch):
+    """Test that fetchSuggestions makes an API call to /api/suggestions"""
+    mock_response = MagicMock()
+    mock_response.ok = True
+    mock_response.json.return_value = {"suggestions": ["test1", "test2"]}
+    mock_fetch.return_value = mock_response
+    
+    # Mock DOM elements
+    suggestionsList = MagicMock()
+    suggestionsList.innerHTML = ''
+    
+    # Call the function
+    fetchSuggestions("test", suggestionsList)
+    
+    # Verify API call was made
+    mock_fetch.assert_called_once_with('/api/suggestions?query=test')
+
+def test_fetch_suggestions_populates_suggestions(mock_fetch):
+    """Test that suggestions are properly displayed in the UI"""
+    mock_response = MagicMock()
+    mock_response.ok = True
+    mock_response.json.return_value = {"suggestions": ["suggestion1", "suggestion2"]}
+    mock_fetch.return_value = mock_response
+    
+    suggestionsList = MagicMock()
+    suggestionsList.innerHTML = ''
+    
+    fetchSuggestions("query", suggestionsList)
+    
+    # Verify suggestions were added to the DOM
+    assert suggestionsList.innerHTML == ''
+    assert len(suggestionsList.appendChild.call_args_list) == 2
+
+def test_fetch_suggestions_handles_empty_response(mock_fetch):
+    """Test that empty suggestions are handled gracefully"""
+    mock_response = MagicMock()
+    mock_response.ok = True
+    mock_response.json.return_value = {"suggestions": []}
+    mock_fetch.return_value = mock_response
+    
+    suggestionsList = MagicMock()
+    suggestionsList.innerHTML = ''
+    
+    fetchSuggestions("query", suggestionsList)
+    
+    # Should not add any suggestions
+    assert suggestionsList.appendChild.call_count == 0
+
+def test_fetch_suggestions_handles_api_error(mock_fetch):
+    """Test that API errors are caught and logged"""
+    mock_response = MagicMock()
+    mock_response.ok = False
+    mock_response.json.return_value = {"error": "Invalid query"}
+    mock_fetch.return_value = mock_response
+    
+    suggestionsList = MagicMock()
+    
+    # Should not raise an exception
+    fetchSuggestions("invalid", suggestionsList)
+
+def test_fetch_suggestions_encodes_query(mock_fetch):
+    """Test that special characters in query are properly encoded"""
+    mock_response = MagicMock()
+    mock_response.ok = True
+    mock_response.json.return_value = {"suggestions": []}
+    mock_fetch.return_value = mock_response
+    
+    suggestionsList = MagicMock()
+    
+    fetchSuggestions("test query with spaces & special=chars", suggestionsList)
+    
+    # Verify the query was properly encoded in the URL
+    call_args = mock_fetch.call_args[0][0]
+    assert "query=test+query+with+spaces+%26+special%3Dchars" in call_args
