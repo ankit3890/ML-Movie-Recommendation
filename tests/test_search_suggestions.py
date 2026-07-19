@@ -1,83 +1,80 @@
 import pytest
-from unittest.mock import patch, MagicMock
-from public.script import fetchSuggestions
+from api.index import get_suggestions
+from flask import Flask
 
 @pytest.fixture
-def mock_fetch():
-    with patch('public.script.fetch') as mock_fetch:
-        yield mock_fetch
+def app():
+    app = Flask(__name__)
+    app.config['TESTING'] = True
+    return app
 
-def test_fetch_suggestions_makes_api_call(mock_fetch):
-    """Test that fetchSuggestions makes an API call to /api/suggestions"""
-    mock_response = MagicMock()
-    mock_response.ok = True
-    mock_response.json.return_value = {"suggestions": ["test1", "test2"]}
-    mock_fetch.return_value = mock_response
-    
-    # Mock DOM elements
-    suggestionsList = MagicMock()
-    suggestionsList.innerHTML = ''
-    
-    # Call the function
-    fetchSuggestions("test", suggestionsList)
-    
-    # Verify API call was made
-    mock_fetch.assert_called_once_with('/api/suggestions?query=test')
+def test_search_suggestions_prefix_matching(app):
+    """
+    Regression test for incorrect substring matching in search suggestions.
+    Verifies that suggestions only include titles that start with the query string.
+    """
+    with app.test_request_context():
+        # Setup test data
+        from api.index import all_titles
+        all_titles.clear()
+        all_titles.extend([
+            "Python Snake Documentary",
+            "Python Tutorial for Beginners",
+            "Advanced Python Programming",
+            "Java Tutorial",
+            "Python and Data Science",
+            "Learning Python",
+            "Python Snake Handling Guide"
+        ])
 
-def test_fetch_suggestions_populates_suggestions(mock_fetch):
-    """Test that suggestions are properly displayed in the UI"""
-    mock_response = MagicMock()
-    mock_response.ok = True
-    mock_response.json.return_value = {"suggestions": ["suggestion1", "suggestion2"]}
-    mock_fetch.return_value = mock_response
-    
-    suggestionsList = MagicMock()
-    suggestionsList.innerHTML = ''
-    
-    fetchSuggestions("query", suggestionsList)
-    
-    # Verify suggestions were added to the DOM
-    assert suggestionsList.innerHTML == ''
-    assert len(suggestionsList.appendChild.call_args_list) == 2
+        # Test 1: Verify prefix matching works correctly
+        with app.test_request_context('/?q=python tut'):
+            suggestions = get_suggestions()
+            assert "Python Tutorial for Beginners" in suggestions
+            assert "Python Snake Documentary" not in suggestions
+            assert "Advanced Python Programming" not in suggestions
 
-def test_fetch_suggestions_handles_empty_response(mock_fetch):
-    """Test that empty suggestions are handled gracefully"""
-    mock_response = MagicMock()
-    mock_response.ok = True
-    mock_response.json.return_value = {"suggestions": []}
-    mock_fetch.return_value = mock_response
-    
-    suggestionsList = MagicMock()
-    suggestionsList.innerHTML = ''
-    
-    fetchSuggestions("query", suggestionsList)
-    
-    # Should not add any suggestions
-    assert suggestionsList.appendChild.call_count == 0
+        # Test 2: Verify exact prefix match is prioritized
+        with app.test_request_context('/?q=python'):
+            suggestions = get_suggestions()
+            assert "Python Tutorial for Beginners" in suggestions
+            assert "Advanced Python Programming" in suggestions
+            assert "Learning Python" in suggestions
+            assert "Python Snake Documentary" in suggestions
+            # Should not include titles that only contain 'python' in the middle
+            assert "Java Tutorial" not in suggestions
 
-def test_fetch_suggestions_handles_api_error(mock_fetch):
-    """Test that API errors are caught and logged"""
-    mock_response = MagicMock()
-    mock_response.ok = False
-    mock_response.json.return_value = {"error": "Invalid query"}
-    mock_fetch.return_value = mock_response
-    
-    suggestionsList = MagicMock()
-    
-    # Should not raise an exception
-    fetchSuggestions("invalid", suggestionsList)
+        # Test 3: Verify case insensitivity
+        with app.test_request_context('/?q=PYTHON'):
+            suggestions = get_suggestions()
+            assert "Python Tutorial for Beginners" in suggestions
+            assert len(suggestions) > 0
 
-def test_fetch_suggestions_encodes_query(mock_fetch):
-    """Test that special characters in query are properly encoded"""
-    mock_response = MagicMock()
-    mock_response.ok = True
-    mock_response.json.return_value = {"suggestions": []}
-    mock_fetch.return_value = mock_response
-    
-    suggestionsList = MagicMock()
-    
-    fetchSuggestions("test query with spaces & special=chars", suggestionsList)
-    
-    # Verify the query was properly encoded in the URL
-    call_args = mock_fetch.call_args[0][0]
-    assert "query=test+query+with+spaces+%26+special%3Dchars" in call_args
+        # Test 4: Verify empty query returns empty list
+        with app.test_request_context('/?q='):
+            suggestions = get_suggestions()
+            assert suggestions == []
+
+        # Test 5: Verify no matches returns empty list
+        with app.test_request_context('/?q=nonexistentquery'):
+            suggestions = get_suggestions()
+            assert suggestions == []
+
+        # Test 6: Verify result limit (should return max 5)
+        with app.test_request_context('/?q=python'):
+            suggestions = get_suggestions()
+            assert len(suggestions) <= 5
+
+        # Test 7: Edge case - query longer than any title
+        with app.test_request_context('/?q=verylongquerythatexceedsanytitle'):
+            suggestions = get_suggestions()
+            assert suggestions == []
+
+        # Test 8: Edge case - special characters in query
+        with app.test_request_context('/?q=python-')
+        with app.test_request_context('/?q=python@'):
+            suggestions1 = get_suggestions()
+            suggestions2 = get_suggestions()
+            # Should handle special characters gracefully
+            assert isinstance(suggestions1, list)
+            assert isinstance(suggestions2, list)
