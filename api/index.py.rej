@@ -1,11 +1,17 @@
 --- api/index.py
 +++ api/index.py
-@@ -118,7 +118,7 @@ def get_random_movies():
-     if not all_titles:
+@@ -108,7 +108,10 @@ BASE_IMG_URL = "https://image.tmdb.org/t/p/w500"
+     query = request.args.get('q', '').lower()
+     if not query:
          return jsonify([])
-     
--    # Select 12 random movies
-+    # Select 12 random movies
- 
- 
- 
+-        
+-    # Simple case-insensitive containment check
+-    # Limit to 5 results for speed and UI space
+-    matches = [t for t in all_titles if query in t.lower()][:5]
++
++    # Filter titles containing the query (case-insensitive)
++    matches = [t for t in all_titles if query in t.lower()]
++
++    # Rank by relevance: prioritize matches where query appears earlier in title
++    # and prefer exact matches or matches starting with query
++    matches.sort(key=lambda x: (0 if x.lower().startswith(query) else 1, x.lower().index(query)))
