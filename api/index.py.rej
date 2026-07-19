@@ -1,12 +1,11 @@
 --- api/index.py
 +++ api/index.py
-@@ -145,7 +145,7 @@ def get_suggestions():
-     query = request.args.get('q', '').lower()
-     if not query:
+@@ -118,7 +118,7 @@ def get_random_movies():
+     if not all_titles:
          return jsonify([])
--        
-+        
-     # Simple case-insensitive containment check
-     # Limit to 5 results for speed and UI space
--    matches = [t for t in all_titles if query in t.lower()][:5]
-+    matches = [t for t in all_titles if t.lower().startswith(query)][:5]
+     
+-    # Select 12 random movies
++    # Select 12 random movies
+ 
+ 
+ 
