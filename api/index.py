@@ -117,7 +117,7 @@ def get_suggestions():
         
     # Simple case-insensitive containment check
     # Limit to 5 results for speed and UI space
-    matches = [t for t in all_titles if query in t.lower()][:5]
+    matches = sorted([t for t in all_titles if query in t.lower()], key=lambda x: x.lower().index(query))[:5]
     
     return jsonify(matches)
 
