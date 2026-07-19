@@ -1,78 +1,57 @@
 import pytest
 from api.index import get_suggestions
+from unittest.mock import patch
 
-@pytest.fixture
-def mock_all_titles():
-    return [
-        "The Matrix",
-        "Star Wars: The Dark Knight",
-        "Inception",
-        "The Godfather",
-        "Pulp Fiction",
-        "The Shawshank Redemption",
-        "The Dark Knight Rises",
-        "Interstellar",
-        "The Lord of the Rings",
-        "Fight Club"
-    ]
-
-def test_bug_regression_prefix_matching(mock_all_titles, monkeypatch):
-    """
-    Regression test for incorrect search suggestions due to case-sensitive substring matching.
-    Verifies that the fix properly implements prefix matching instead of substring matching.
-    """
-    # Mock the all_titles list in the module
-    import api.index
-    monkeypatch.setattr(api.index, 'all_titles', mock_all_titles)
-
-    # Test case 1: Query 'the' should not match 'The Matrix' (substring match) but should match 'The Godfather'
-    # With the fix, only titles starting with 'the' should match
-    from unittest.mock import Mock
-    from flask import Flask
-    
-    app = Flask(__name__)
-    with app.test_request_context('/?q=the'):
-        response = get_suggestions()
-        suggestions = response.get_json()
-        # Should only return titles that start with 'the' (case-insensitive)
-        assert 'The Godfather' in suggestions
-        assert 'The Matrix' not in suggestions  # Was incorrectly included before fix
-        assert 'Star Wars: The Dark Knight' not in suggestions  # Was incorrectly included before fix
-        assert 'The Dark Knight Rises' in suggestions
-        assert 'The Shawshank Redemption' in suggestions
-        assert len(suggestions) <= 5  # Limit check
-
-    # Test case 2: Query 'dark' should not match 'Star Wars: The Dark Knight' (substring match)
-    with app.test_request_context('/?q=dark'):
-        response = get_suggestions()
-        suggestions = response.get_json()
-        assert 'Star Wars: The Dark Knight' not in suggestions  # Was incorrectly included before fix
-        assert 'The Dark Knight Rises' in suggestions
-        assert len(suggestions) <= 5
-
-    # Test case 3: Query 'in' should not match 'Inception' (prefix match should work)
-    with app.test_request_context('/?q=in'):
-        response = get_suggestions()
-        suggestions = response.get_json()
-        assert 'Inception' in suggestions
-        assert len(suggestions) <= 5
-
-    # Test case 4: Empty query should return empty list
-    with app.test_request_context('/?q='):
-        response = get_suggestions()
-        suggestions = response.get_json()
-        assert suggestions == []
-
-    # Test case 5: Query longer than any title should return empty list
-    with app.test_request_context('/?q=verylongquerythatexceedsanytitlelength'):
-        response = get_suggestions()
-        suggestions = response.get_json()
-        assert suggestions == []
-
-    # Test case 6: Case insensitivity check
-    with app.test_request_context('/?q=THE'):
-        response = get_suggestions()
-        suggestions = response.get_json()
-        assert 'The Godfather' in suggestions
-        assert 'The Matrix' not in suggestions
-        assert len(suggestions) <= 5
+@patch('api.index.all_titles', ['Python Tutorial', 'Java Tutorial', 'Python for Beginners', 'Advanced Python', 'Python Cookbook'])
+def test_search_suggestions_case_insensitive_relevance():
+    # Test case-sensitive substring matching issue
+    with app.test_client() as client:
+        # Test 1: Basic case insensitivity
+        response = client.get('/api/suggestions?q=python')
+        data = response.get_json()
+        assert response.status_code == 200
+        assert len(data) == 5  # Should return all matches
+        assert 'Python Tutorial' in data
+        assert 'Java Tutorial' not in data  # Should not match unrelated titles
+        
+        # Test 2: Relevance ordering (query as whole word earlier in title should rank higher)
+        response = client.get('/api/suggestions?q=python')
+        data = response.get_json()
+        assert data[0] == 'Python Tutorial'  # Should be first as 'Python' is first word
+        assert data[1] == 'Python for Beginners'
+        assert data[2] == 'Advanced Python'
+        assert data[3] == 'Python Cookbook'
+        
+        # Test 3: Partial word matching should still work
+        response = client.get('/api/suggestions?q=tutorial')
+        data = response.get_json()
+        assert len(data) == 2
+        assert 'Python Tutorial' in data
+        assert 'Java Tutorial' in data
+        
+        # Test 4: Empty query should return empty list
+        response = client.get('/api/suggestions?q=')
+        data = response.get_json()
+        assert data == []
+        
+        # Test 5: Non-existent query should return empty list
+        response = client.get('/api/suggestions?q=nonexistent')
+        data = response.get_json()
+        assert data == []
+        
+        # Test 6: Case variations should match
+        response = client.get('/api/suggestions?q=PYTHON')
+        data = response.get_json()
+        assert len(data) == 4
+        assert 'Python Tutorial' in data
+        
+        # Test 7: Word boundary matching (should not match partial words)
+        response = client.get('/api/suggestions?q=thon')
+        data = response.get_json()
+        assert len(data) == 0  # Should not match 'Python' as it's not a whole word
+        
+        # Test 8: Multiple word query
+        response = client.get('/api/suggestions?q=python tutorial')
+        data = response.get_json()
+        assert len(data) == 1
+        assert 'Python Tutorial' in data
